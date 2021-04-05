@@ -9,6 +9,7 @@ const configuration = {
         { 'urls': 'stun:stun.l.google.com:19302' },
     ]
 };
+const WS_PORT = 5000;
 const username = document.querySelector('#username');
 const connectBtn = document.querySelector('#connect');
 const remoteContainer = document.querySelector('#remote_videos');
@@ -19,6 +20,19 @@ let localStream = null;
 let connection = null;
 const consumers = new Map();
 const clients = new Map();
+
+async function init() {
+    console.log('window loaded');
+    const protocol = window.location.protocol === 'https' ? 'wss' : 'ws';
+    const url = `${protocol}://${window.location.hostname}:${WS_PORT}`;
+    connection = new WebSocket(url);
+    connection.onmessage = handleMessage;
+    connection.onclose = handleClose;
+    connection.onopen = event => {
+        connectBtn.disabled = false;
+        console.log('socket connected')
+    }
+}
 
 function uuidv4() {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
@@ -188,18 +202,6 @@ function handleClose() {
     localStream.getTracks().forEach(track => track.stop());
     clients = null;
     consumers = null;
-}
-
-async function init() {
-    console.log('window loaded')
-    const url = `ws://localhost:5000`;
-    connection = new WebSocket(url);
-    connection.onmessage = handleMessage;
-    connection.onclose = handleClose;
-    connection.onopen = event => {
-        connectBtn.disabled = false;
-        console.log('socket connected')
-    }
 }
 
 function createPeer() {
