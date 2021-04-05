@@ -23,7 +23,7 @@ const clients = new Map();
 
 async function init() {
     console.log('window loaded');
-    const protocol = window.location.protocol === 'https' ? 'wss' : 'ws';
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
     const url = `${protocol}://${window.location.hostname}:${WS_PORT}`;
     connection = new WebSocket(url);
     connection.onmessage = handleMessage;
