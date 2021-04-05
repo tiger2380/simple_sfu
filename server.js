@@ -11,22 +11,6 @@ const WebSocket = require('ws');
 // based on examples at https://www.npmjs.com/package/ws 
 const WebSocketServer = WebSocket.Server;
 
-const handleRequest = function (request, response) {
-    // Render the single client html file for any request the HTTP server receives
-    console.log('request received: ' + request.url);
-
-    if (request.url === '/webrtc.js') {
-        response.writeHead(200, { 'Content-Type': 'application/javascript' });
-        response.end(fs.readFileSync('client/webrtc.js'));
-    } else if (request.url === '/style.css') {
-        response.writeHead(200, { 'Content-Type': 'text/css' });
-        response.end(fs.readFileSync('client/style.css'));
-    } else {
-        response.writeHead(200, { 'Content-Type': 'text/html' });
-        response.end(fs.readFileSync('client/index.html'));
-    }
-};
-
 const httpServer = http.createServer();
 httpServer.listen(HTTP_PORT);
 let peers = new Map();
