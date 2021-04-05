@@ -75,9 +75,7 @@ async function handleIceCandidate({ candidate }) {
 async function checkPeerConnection(e) {
     var state = peer.iceConnectionState;
     if (state === "failed" || state === "closed" || state === "disconnected") {
-        delete peerConnections[peerUuid];
-        document.getElementById('videos').removeChild(document.getElementById('remoteVideo_' + peerUuid));
-        updateLayout();
+        
     }
 }
 
