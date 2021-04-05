@@ -185,7 +185,7 @@ function removeUser({ id }) {
     document.querySelector(`#user_${username}`).remove();
 }
 
-async function connect() {
+async function connect() { //Produce media
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     document.getElementById("video").srcObject = stream;
     localStream = stream;
@@ -220,7 +220,7 @@ async function handleNegotiation(peer, type) {
     connection.send(JSON.stringify({ type: 'connect', sdp: peer.localDescription, uqid: localUUID, username: username.value }));
 }
 
-async function subscribe() {
+async function subscribe() { // Consume media
     await consumeAll();
 }
 
