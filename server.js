@@ -15,12 +15,10 @@ app.use(express.static('public'));
 const WebSocketServer = WebSocket.Server;
 
 let serverOptions = {
-    //hostName: "https://talkistudio.com",
-    //hostName: "http://localhost/talkistudio",
     listenPort: 5000,
-    useHttps: false,
-    httpsCertFile: './ssl/cert.pem',
-    httpsKeyFile: './ssl/privkey.pem'
+    useHttps: true,
+    httpsCertFile: '/etc/letsencrypt/live/thaddeusbibbs.tk/fullchain.pem',
+    httpsKeyFile: '/etc/letsencrypt/live/thaddeusbibbs.tk/privkey.pem',
 };
 
 let sslOptions = {};
