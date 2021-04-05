@@ -17,8 +17,8 @@ const WebSocketServer = WebSocket.Server;
 let serverOptions = {
     listenPort: 5000,
     useHttps: true,
-    httpsCertFile: '/etc/letsencrypt/live/thaddeusbibbs.tk/fullchain.pem',
-    httpsKeyFile: '/etc/letsencrypt/live/thaddeusbibbs.tk/privkey.pem',
+    httpsCertFile: '/path/to/cert/',
+    httpsKeyFile: '/path/to/key/',
 };
 
 let sslOptions = {};
