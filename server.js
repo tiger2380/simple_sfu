@@ -2,17 +2,41 @@
 
 const webrtc = require("wrtc");
 const cors = require('cors');
-const HTTP_PORT = 5000; //default port for http is 80
 const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const WebSocket = require('ws');
+const express = require('express');
+const app = express();
+
+app.use(express.static('public'));
 // based on examples at https://www.npmjs.com/package/ws 
 const WebSocketServer = WebSocket.Server;
 
-const httpServer = http.createServer();
-httpServer.listen(HTTP_PORT);
+let serverOptions = {
+    //hostName: "https://talkistudio.com",
+    //hostName: "http://localhost/talkistudio",
+    listenPort: 5000,
+    useHttps: false,
+    httpsCertFile: './ssl/cert.pem',
+    httpsKeyFile: './ssl/privkey.pem'
+};
+
+let sslOptions = {};
+if (serverOptions.useHttps) {
+    sslOptions.key = fs.readFileSync(serverOptions.httpsKeyFile).toString();
+    sslOptions.cert = fs.readFileSync(serverOptions.httpsCertFile).toString();
+}
+
+let webServer = null;
+if(serverOptions.useHttps) {
+    webServer = https.createServer(sslOptions, app);
+    webServer.listen(serverOptions.listenPort);
+} else {
+    webServer = http.createServer(app);
+    webServer.listen(serverOptions.listenPort);
+}
 let peers = new Map();
 let consumers = new Map();
 
@@ -34,14 +58,14 @@ function createPeer() {
         iceServers: [
             { 'urls': 'stun:stun.stunprotocol.org:3478' },
             { 'urls': 'stun:stun.l.google.com:19302' },
-          ]
+        ]
     });
 
     return peer;
 }
 
 // Create a server for handling websocket calls
-const wss = new WebSocketServer({ server: httpServer });
+const wss = new WebSocketServer({ server: webServer });
 
 
 wss.on('connection', function (ws) {
@@ -56,15 +80,15 @@ wss.on('connection', function (ws) {
             id: ws.id
         }));
     });
-    
-    
-    ws.send(JSON.stringify({'type': 'welcome', id: peerId}));
+
+
+    ws.send(JSON.stringify({ 'type': 'welcome', id: peerId }));
     ws.on('message', async function (message) {
         const body = JSON.parse(message);
         switch (body.type) {
             case 'connect':
                 peers.set(body.uqid, { socket: ws });
-                const peer = createPeer();                
+                const peer = createPeer();
                 peers.get(body.uqid).username = body.username;
                 peers.get(body.uqid).peer = peer;
                 peer.ontrack = (e) => { handleTrackEvent(e, body.uqid, ws) };
@@ -73,8 +97,8 @@ wss.on('connection', function (ws) {
                 const answer = await peer.createAnswer();
                 await peer.setLocalDescription(answer);
 
-               
-   
+
+
                 const payload = {
                     type: 'answer',
                     sdp: peer.localDescription
@@ -104,8 +128,8 @@ wss.on('connection', function (ws) {
                 break;
             case 'ice':
                 const user = peers.get(body.uqid);
-                if(user.peer)
-                 user.peer.addIceCandidate(new webrtc.RTCIceCandidate(body.ice)).catch(e => console.log(e));
+                if (user.peer)
+                    user.peer.addIceCandidate(new webrtc.RTCIceCandidate(body.ice)).catch(e => console.log(e));
                 break;
             case 'consume':
                 try {
@@ -117,7 +141,7 @@ wss.on('connection', function (ws) {
                     await consumers.get(consumerId).setRemoteDescription(_desc);
 
                     remoteUser.stream.getTracks().forEach(track => {
-                        consumers.get(consumerId).addTrack(track, remoteUser.stream); 
+                        consumers.get(consumerId).addTrack(track, remoteUser.stream);
                     });
                     const _answer = await consumers.get(consumerId).createAnswer();
                     await consumers.get(consumerId).setLocalDescription(_answer);
@@ -134,10 +158,10 @@ wss.on('connection', function (ws) {
                 } catch (error) {
                     console.log(error)
                 }
-                
+
                 break;
             case 'consumer_ice':
-                if(consumers.has(body.consumerId)) {
+                if (consumers.has(body.consumerId)) {
                     consumers.get(body.consumerId).addIceCandidate(new webrtc.RTCIceCandidate(body.ice)).catch(e => console.log(e));
                 }
                 break;
