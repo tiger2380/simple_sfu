@@ -34,6 +34,18 @@ async function init() {
     }
 }
 
+function recalculateLayout() {
+    const container = remoteContainer;
+    const videoContainer = document.querySelector('.videos-inner');
+    const videoCount = container.querySelectorAll('.videoWrap').length;
+    
+    if(videoCount >= 3) {
+        videoContainer.style.setProperty("--grow", 0 + "");
+    } else {
+        videoContainer.style.setProperty("--grow", 1 + "");
+    }
+}
+
 function uuidv4() {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
         var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
@@ -41,23 +53,34 @@ function uuidv4() {
     });
 }
 
-async function handleRemoteTrack(e, username) {
-    if (document.querySelector(`#remote_${username}`)) {
-        document.querySelector(`#remote_${username}`).srcObject.addTrack(e.streams[0].getTracks()[0])
+function findUserVideo(username) {
+    return document.querySelector(`#remote_${username}`)
+}
+
+async function handleRemoteTrack(stream, username) {
+    const userVideo = findUserVideo(username);
+    if (userVideo) {
+        userVideo.srcObject.addTrack(stream.getTracks()[0])
     } else {
         const video = document.createElement('video');
         video.id = `remote_${username}`
-        video.srcObject = e.streams[0];
+        video.srcObject = stream;
         video.autoplay = true;
 
         const div = document.createElement('div')
         div.id = `user_${username}`;
-        div.classList.add('video_container')
-        const textNode = document.createTextNode(username)
-        div.appendChild(textNode);
+        div.classList.add('videoWrap')
+
+        const nameContainer = document.createElement('div');
+        nameContainer.classList.add('display_name')
+        const textNode = document.createTextNode(username);
+        nameContainer.appendChild(textNode);
+        div.appendChild(nameContainer);
         div.appendChild(video);
-        remoteContainer.appendChild(div);
+        document.querySelector('.videos-inner').appendChild(div);
     }
+
+    recalculateLayout();
 }
 
 async function handleIceCandidate({ candidate }) {
@@ -111,7 +134,7 @@ async function createConsumeTransport(peer) {
     consumers.get(consumerId).onicecandidate = (e) => handleConsumerIceCandidate(e, peer.id, consumerId);
 
     consumers.get(consumerId).ontrack = (e) => {
-        handleRemoteTrack(e, peer.username)
+        handleRemoteTrack(e.streams[0], peer.username)
     };
 
     return consumerTransport;
@@ -183,11 +206,13 @@ function removeUser({ id }) {
     clients.delete(id);
     document.querySelector(`#remote_${username}`).srcObject.getTracks().forEach(track => track.stop());
     document.querySelector(`#user_${username}`).remove();
+
+    recalculateLayout();
 }
 
 async function connect() { //Produce media
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    document.getElementById("video").srcObject = stream;
+    handleRemoteTrack(stream, username.value)
     localStream = stream;
 
     peer = createPeer();
@@ -203,9 +228,7 @@ function handleClose() {
 }
 
 function createPeer() {
-    console.log('creating peer')
     peer = new RTCPeerConnection(configuration);
-    peer.ontrack = handleRemoteTrack;
     peer.onicecandidate = handleIceCandidate;
     //peer.oniceconnectionstatechange = checkPeerConnection;
     peer.onnegotiationneeded = () => handleNegotiation(peer);

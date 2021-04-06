@@ -1,0 +1,68 @@
+#remote_videos {
+    width: 1098px;
+    height: 750px;
+    margin: 20px auto;
+    border: 2px solid silver;
+}
+
+.videos-inner {
+    width: 100%;
+    height: 750px;
+    display: -webkit-box;
+    display: -ms-flexbox;
+    display: flex;
+    -webkit-box-pack: justify;
+        -ms-flex-pack: justify;
+            justify-content: space-between;
+    -ms-flex-wrap: wrap;
+        flex-wrap: wrap;
+    gap: 1.2rem;
+  }
+  
+  .videos-inner .videoWrap {
+    position: relative;
+    -ms-flex-negative: 1;
+        flex-shrink: 1;
+    -ms-flex-preferred-size: 31%;
+        flex-basis: 31%;
+    -webkit-box-flex: var(--grow);
+        -ms-flex-positive: var(--grow);
+            flex-grow: var(--grow);
+  }
+  
+  .videos-inner .videoWrap video {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    -o-object-fit: cover;
+       object-fit: cover;
+  }
+  
+  .videos-inner .display_name {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.8);
+    padding: 0.8rem 1.5rem;
+    color: white;
+    font-weight: bold;
+    font-family: Arial;
+    border-radius: 20px;
+    max-width: 98%;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    z-index: 2;
+    font-size: 1.2rem;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.8);
+  }
+  
+  .videos-inner .display_name p {
+    margin: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
