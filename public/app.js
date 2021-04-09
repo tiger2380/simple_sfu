@@ -66,6 +66,7 @@ async function handleRemoteTrack(stream, username) {
         video.id = `remote_${username}`
         video.srcObject = stream;
         video.autoplay = true;
+        video.muted = (username == username.value);
 
         const div = document.createElement('div')
         div.id = `user_${username}`;
@@ -123,6 +124,7 @@ function handleConsume({ sdp, id, consumerId }) {
 async function createConsumeTransport(peer) {
     const consumerId = uuidv4();
     const consumerTransport = new RTCPeerConnection(configuration);
+    clients.get(peer.id).consumerId = consumerId;
     consumerTransport.id = consumerId;
     consumerTransport.peer = peer;
     consumers.set(consumerId, consumerTransport);
@@ -167,8 +169,9 @@ function handleAnswer({ sdp }) {
 }
 
 async function handleNewProducer({ id, username }) {
-    console.log(id, username)
     if (id === localUUID) return;
+
+    console.log('consuming', id)
     clients.set(id, { id, username });
 
     await consumeOnce({ id, username });
@@ -201,8 +204,8 @@ function handleMessage({ data }) {
 }
 
 function removeUser({ id }) {
-    consumers.delete(id);
-    const { username } = clients.get(id);
+    const { username, consumerId } = clients.get(id);
+    consumers.delete(consumerId);
     clients.delete(id);
     document.querySelector(`#remote_${username}`).srcObject.getTracks().forEach(track => track.stop());
     document.querySelector(`#user_${username}`).remove();

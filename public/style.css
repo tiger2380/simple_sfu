@@ -2,7 +2,6 @@
     width: 1098px;
     height: 750px;
     margin: 20px auto;
-    border: 2px solid silver;
 }
 
 .videos-inner {
@@ -45,7 +44,7 @@
     bottom: 20px;
     left: 50%;
     transform: translateX(-50%);
-    background: rgba(0, 0, 0, 0.8);
+    background: rgba(0, 0, 0, 0.6);
     padding: 0.8rem 1.5rem;
     color: white;
     font-weight: bold;
@@ -56,8 +55,9 @@
     text-overflow: ellipsis;
     overflow: hidden;
     z-index: 2;
-    font-size: 1.2rem;
-    box-shadow: 0 0 10px rgba(0, 0, 0, 0.8);
+    font-size: 0.95rem;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+    text-transform: uppercase;
   }
   
   .videos-inner .display_name p {
