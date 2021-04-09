@@ -38,8 +38,8 @@ function recalculateLayout() {
     const container = remoteContainer;
     const videoContainer = document.querySelector('.videos-inner');
     const videoCount = container.querySelectorAll('.videoWrap').length;
-    
-    if(videoCount >= 3) {
+
+    if (videoCount >= 3) {
         videoContainer.style.setProperty("--grow", 0 + "");
     } else {
         videoContainer.style.setProperty("--grow", 1 + "");
@@ -99,7 +99,7 @@ async function handleIceCandidate({ candidate }) {
 async function checkPeerConnection(e) {
     var state = peer.iceConnectionState;
     if (state === "failed" || state === "closed" || state === "disconnected") {
-        
+
     }
 }
 
@@ -155,7 +155,7 @@ async function consumeOnce(peer) {
 }
 
 async function handlePeers({ peers }) {
-    if(peers.length > 0) {
+    if (peers.length > 0) {
         for (const peer in peers) {
             clients.set(peers[peer].id, peers[peer]);
             await consumeOnce(peers[peer]);
@@ -214,7 +214,21 @@ function removeUser({ id }) {
 }
 
 async function connect() { //Produce media
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    const constraint = {
+        audio: true,
+        video: {
+            mandatory: {
+                width: { min: 320 },
+                height: { min: 180 }
+            },
+            optional: [
+                { width: { max: 1280 } },
+                { frameRate: 30 },
+                { facingMode: "user" }
+            ]
+        }
+    }
+    const stream = await navigator.mediaDevices.getUserMedia(constraint);
     handleRemoteTrack(stream, username.value)
     localStream = stream;
 
