@@ -75,13 +75,25 @@ class SimpleSFUClient {
     }
 
     findUserVideo(username) {
-        return document.querySelector(`#remote_${username}`)
+        const video = document.querySelector(`#remote_${username}`)
+        if (!video) {
+            return false;
+        }
+        return video
     }
 
     async handleRemoteTrack(stream, username) {
         const userVideo = this.findUserVideo(username);
         if (userVideo) {
-            userVideo.srcObject.addTrack(stream.getTracks()[0])
+            // If the track already exists, do not add it again.
+            // This can happen when the remote user unmutes their mic.
+            const tracks = userVideo.srcObject.getTracks();
+            const track = stream.getTracks()[0];
+            if (tracks.includes(track)) {
+                return;
+            }
+
+            userVideo.srcObject.addTrack(track)
         } else {
             const video = document.createElement('video');
             video.id = `remote_${username}`
