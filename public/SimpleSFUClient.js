@@ -10,7 +10,9 @@ const _EVENTS = {
     onScreenShareStopped: 'onScreenShareStopped',
     exitRoom: 'exitRoom',
     onConnected: 'onConnected',
-    onRemoteTrack: 'onRemoteTrack'
+    onRemoteTrack: 'onRemoteTrack',
+    onRemoteSpeaking: 'onRemoteSpeaking',
+    onRemoteStoppedSpeaking: 'onRemoteStoppedSpeaking',
 };
 
 class SimpleSFUClient {
@@ -74,16 +76,72 @@ class SimpleSFUClient {
         return _isOpen;
     }
 
-    findUserVideo(username) {
-        const video = document.querySelector(`#remote_${username}`)
+    findUserVideo(consumerId) {
+        const video = document.querySelector(`#remote_${consumerId}`)
         if (!video) {
             return false;
         }
         return video
     }
 
-    async handleRemoteTrack(stream, username) {
-        const userVideo = this.findUserVideo(username);
+    /**
+     * 
+     * @returns {Promise<MediaStream>}
+     * @memberof SimpleSFUClient
+     * @description This method will return a promise that resolves to a MediaStream object.
+     * The MediaStream object will contain the white noise that you can use instead of an actual webcam video/audio.
+     */
+    whiteNoise = () => {
+        let canvas = document.createElement('canvas');
+        canvas.width = 160;
+        canvas.height = 120;
+        let ctx = canvas.getContext('2d');
+        let p = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        requestAnimationFrame(function draw() {
+            for (var i = 0; i < p.data.length; i++) {
+                p.data[i++] = p.data[i++] = p.data[i++] = Math.random() * 255;
+            }
+            ctx.putImageData(p, 0, 0);
+            requestAnimationFrame(draw);
+        });
+        return canvas;
+    }
+
+
+    createVideoElement(username, stream, consumerId) {
+        const video = document.createElement('video');
+        video.id = `remote_${consumerId}`
+        video.srcObject = stream;
+        video.autoplay = true;
+        video.muted = (username == username.value);
+        return video;
+    }
+
+    createDisplayName(username) {
+        const nameContainer = document.createElement('div');
+        nameContainer.classList.add('display_name')
+        const textNode = document.createTextNode(username);
+        nameContainer.appendChild(textNode);
+        return nameContainer;
+    }
+
+    /**
+     * 
+     * @param {*} video 
+     * @param {*} username 
+     * @returns {HTMLDivElement}
+     */
+    createVideoWrapper(video, username, consumerId) {
+        const div = document.createElement('div')
+        div.id = `user_${consumerId}`;
+        div.classList.add('videoWrap')
+        div.appendChild(this.createDisplayName(username));
+        div.appendChild(video);
+        return div;
+    }
+
+    async handleRemoteTrack(stream, username, consumerId) {
+        const userVideo = this.findUserVideo(consumerId);
         if (userVideo) {
             // If the track already exists, do not add it again.
             // This can happen when the remote user unmutes their mic.
@@ -95,22 +153,25 @@ class SimpleSFUClient {
 
             userVideo.srcObject.addTrack(track)
         } else {
-            const video = document.createElement('video');
-            video.id = `remote_${username}`
-            video.srcObject = stream;
-            video.autoplay = true;
-            video.muted = (username == username.value);
+            const video = this.createVideoElement(username, stream, consumerId);
 
-            const div = document.createElement('div')
-            div.id = `user_${username}`;
-            div.classList.add('videoWrap')
+            const Hark = new hark(stream);
 
-            const nameContainer = document.createElement('div');
-            nameContainer.classList.add('display_name')
-            const textNode = document.createTextNode(username);
-            nameContainer.appendChild(textNode);
-            div.appendChild(nameContainer);
-            div.appendChild(video);
+            Hark.on('volume_change', (dBs, threshold) => {
+                this.trigger(_EVENTS.onRemoteVolumeChange, { username, stream, consumerId, dBs, threshold });
+            });
+
+            Hark.on('stopped_speaking', () => {
+                this.trigger(_EVENTS.onRemoteStoppedSpeaking, { username, stream, consumerId });
+                video.classList.remove('speaking');
+            });
+
+            Hark.on('speaking', () => {
+                this.trigger(_EVENTS.onRemoteSpeaking, { username, stream, consumerId });
+                video.classList.add('speaking');
+            });
+
+            const div = this.createVideoWrapper(video, username, consumerId);
             document.querySelector('.videos-inner').appendChild(div);
 
             this.trigger(_EVENTS.onRemoteTrack, stream)
@@ -163,7 +224,7 @@ class SimpleSFUClient {
         this.consumers.get(consumerId).onicecandidate = (e) => this.handleConsumerIceCandidate(e, peer.id, consumerId);
 
         this.consumers.get(consumerId).ontrack = (e) => {
-            this.handleRemoteTrack(e.streams[0], peer.username)
+            this.handleRemoteTrack(e.streams[0], peer.username, consumerId);
         };
 
         return consumerTransport;
@@ -232,8 +293,8 @@ class SimpleSFUClient {
         const { username, consumerId } = this.clients.get(id);
         this.consumers.delete(consumerId);
         this.clients.delete(id);
-        document.querySelector(`#remote_${username}`).srcObject.getTracks().forEach(track => track.stop());
-        document.querySelector(`#user_${username}`).remove();
+        document.querySelector(`#remote_${consumerId}`).srcObject.getTracks().forEach(track => track.stop());
+        document.querySelector(`#user_${consumerId}`).remove();
 
         this.recalculateLayout();
     }

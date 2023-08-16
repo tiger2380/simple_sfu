@@ -66,3 +66,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+
+  .speaking {
+    box-shadow: 0 0 0 3px #00ff00;
+  }
