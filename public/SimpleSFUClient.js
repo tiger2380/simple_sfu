@@ -399,12 +399,12 @@ class SimpleSFUClient {
         this.localPeer.setRemoteDescription(desc).catch(e => console.log(e));
     }
 
-    async handleNewProducer({ id, username }) {
-        if (id === this.localUUID) return;
+    async handleNewProducer({ id, username, trackInfo }) {
+        if (id === this.localUUID || this.clients.has(id)) return;
 
-        this.clients.set(id, { id, username });
+        this.clients.set(id, { id, username, trackInfo });
 
-        await this.consumeOnce({ id, username });
+        await this.consumeOnce({ id, username, trackInfo });
     }
 
     handleMessage({ data }) {
