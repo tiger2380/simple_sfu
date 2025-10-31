@@ -1,5 +1,24 @@
-'use strict'
+'use strict';
 
+/**
+ * @typedef {Object} SimpleSFUEvents
+ * @property {string} onLeave - Triggered when a user leaves
+ * @property {string} onJoin - Triggered when a user joins
+ * @property {string} onCreate - Triggered when the client is created
+ * @property {string} onStreamStarted - Triggered when a media stream starts
+ * @property {string} onStreamEnded - Triggered when a media stream ends
+ * @property {string} onReady - Triggered when the client is ready
+ * @property {string} onScreenShareStopped - Triggered when screen sharing stops
+ * @property {string} exitRoom - Triggered when leaving the room
+ * @property {string} onConnected - Triggered when WebSocket connects
+ * @property {string} onRemoteTrack - Triggered when receiving a remote track
+ * @property {string} onRemoteSpeaking - Triggered when a remote user starts speaking
+ * @property {string} onRemoteStoppedSpeaking - Triggered when a remote user stops speaking
+ * @property {string} onError - Triggered when an error occurs
+ * @property {string} onConnectionStateChange - Triggered when connection state changes
+ */
+
+/** @type {SimpleSFUEvents} */
 const _EVENTS = {
     onLeave: 'onLeave',
     onJoin: 'onJoin',
@@ -13,6 +32,8 @@ const _EVENTS = {
     onRemoteTrack: 'onRemoteTrack',
     onRemoteSpeaking: 'onRemoteSpeaking',
     onRemoteStoppedSpeaking: 'onRemoteStoppedSpeaking',
+    onError: 'onError',
+    onConnectionStateChange: 'onConnectionStateChange',
 };
 
 class SimpleSFUClient {
@@ -44,15 +65,43 @@ class SimpleSFUClient {
         this.trigger(_EVENTS.onReady);
     }
 
+    /**
+     * Initializes the WebSocket connection
+     * @private
+     */
     initWebSocket() {
-        const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-        const url = `${protocol}://${window.location.hostname}:${this.settings.port}`;
-        this.connection = new WebSocket(url);
-        this.connection.onmessage = (data) => this.handleMessage(data);
-        this.connection.onclose = () => this.handleClose();
-        this.connection.onopen = event => {
-            this.trigger(_EVENTS.onConnected, event);
-            this._isOpen = true;
+        try {
+            const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+            const url = `${protocol}://${window.location.hostname}:${this.settings.port}`;
+            
+            this.connection = new WebSocket(url);
+            
+            this.connection.onmessage = (data) => this.handleMessage(data);
+            this.connection.onclose = () => this.handleClose();
+            this.connection.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                this.trigger(_EVENTS.onError, { type: 'websocket', error });
+            };
+            this.connection.onopen = event => {
+                this.trigger(_EVENTS.onConnected, event);
+                this._isOpen = true;
+            };
+
+            // Add connection timeout
+            const timeout = setTimeout(() => {
+                if (this.connection.readyState !== WebSocket.OPEN) {
+                    this.trigger(_EVENTS.onError, { 
+                        type: 'connection',
+                        error: new Error('Connection timeout')
+                    });
+                    this.connection.close();
+                }
+            }, 10000); // 10 second timeout
+
+            this.connection.addEventListener('open', () => clearTimeout(timeout));
+        } catch (error) {
+            console.error('Failed to initialize WebSocket:', error);
+            this.trigger(_EVENTS.onError, { type: 'initialization', error });
         }
     }
 
@@ -140,44 +189,96 @@ class SimpleSFUClient {
         return div;
     }
 
+    /**
+     * Handle incoming remote media tracks
+     * @param {MediaStream} stream - The media stream containing the track
+     * @param {string} username - The username associated with the track
+     * @param {string} consumerId - The unique consumer ID
+     * @private
+     */
     async handleRemoteTrack(stream, username, consumerId) {
-        const userVideo = this.findUserVideo(consumerId);
-        if (userVideo) {
-            // If the track already exists, do not add it again.
-            // This can happen when the remote user unmutes their mic.
-            const tracks = userVideo.srcObject.getTracks();
-            const track = stream.getTracks()[0];
-            if (tracks.includes(track)) {
-                return;
+        try {
+            const userVideo = this.findUserVideo(consumerId);
+            
+            if (userVideo) {
+                // Handle existing video element
+                const tracks = userVideo.srcObject.getTracks();
+                const newTrack = stream.getTracks()[0];
+                
+                // Prevent duplicate tracks
+                if (tracks.some(track => track.id === newTrack.id)) {
+                    return;
+                }
+
+                // Add new track to existing stream
+                userVideo.srcObject.addTrack(newTrack);
+                
+                // Monitor track status
+                newTrack.onended = () => {
+                    this.trigger(_EVENTS.onStreamEnded, { username, consumerId, trackId: newTrack.id });
+                };
+            } else {
+                // Create new video element for the stream
+                const video = this.createVideoElement(username, stream, consumerId);
+                
+                // Set up audio analysis with Hark
+                try {
+                    const harkInstance = new hark(stream, {
+                        play: false,           // don't play the stream
+                        threshold: -65,        // voice activity detection threshold
+                        interval: 100          // how often to check audio level
+                    });
+
+                    const handleVolumeChange = (dBs, threshold) => {
+                        this.trigger(_EVENTS.onRemoteVolumeChange, { 
+                            username, 
+                            consumerId, 
+                            dBs, 
+                            threshold 
+                        });
+                    };
+
+                    const handleStoppedSpeaking = () => {
+                        this.trigger(_EVENTS.onRemoteStoppedSpeaking, { username, consumerId });
+                        video.classList.remove('speaking');
+                    };
+
+                    const handleSpeaking = () => {
+                        this.trigger(_EVENTS.onRemoteSpeaking, { username, consumerId });
+                        video.classList.add('speaking');
+                    };
+
+                    harkInstance.on('volume_change', handleVolumeChange);
+                    harkInstance.on('stopped_speaking', handleStoppedSpeaking);
+                    harkInstance.on('speaking', handleSpeaking);
+
+                    // Store hark instance for cleanup
+                    video.harkInstance = harkInstance;
+                } catch (error) {
+                    console.warn('Failed to initialize audio monitoring:', error);
+                }
+
+                // Create and add video wrapper to DOM
+                const div = this.createVideoWrapper(video, username, consumerId);
+                const container = document.querySelector('.videos-inner');
+                if (container) {
+                    container.appendChild(div);
+                } else {
+                    console.warn('Video container not found');
+                }
+
+                this.trigger(_EVENTS.onRemoteTrack, { stream, username, consumerId });
             }
 
-            userVideo.srcObject.addTrack(track)
-        } else {
-            const video = this.createVideoElement(username, stream, consumerId);
-
-            const Hark = new hark(stream);
-
-            Hark.on('volume_change', (dBs, threshold) => {
-                this.trigger(_EVENTS.onRemoteVolumeChange, { username, stream, consumerId, dBs, threshold });
+            this.recalculateLayout();
+        } catch (error) {
+            console.error('Error handling remote track:', error);
+            this.trigger(_EVENTS.onError, { 
+                type: 'remote-track', 
+                error,
+                details: { username, consumerId } 
             });
-
-            Hark.on('stopped_speaking', () => {
-                this.trigger(_EVENTS.onRemoteStoppedSpeaking, { username, stream, consumerId });
-                video.classList.remove('speaking');
-            });
-
-            Hark.on('speaking', () => {
-                this.trigger(_EVENTS.onRemoteSpeaking, { username, stream, consumerId });
-                video.classList.add('speaking');
-            });
-
-            const div = this.createVideoWrapper(video, username, consumerId);
-            document.querySelector('.videos-inner').appendChild(div);
-
-            this.trigger(_EVENTS.onRemoteTrack, stream)
         }
-
-        this.recalculateLayout();
     }
 
     async handleIceCandidate({ candidate }) {
@@ -209,25 +310,67 @@ class SimpleSFUClient {
         this.consumers.get(consumerId).setRemoteDescription(desc).catch(e => console.log(e));
     }
 
+    /**
+     * Creates a new consumer transport for receiving media
+     * @param {Object} peer - The peer to create the transport for
+     * @returns {Promise<RTCPeerConnection>} The created consumer transport
+     * @private
+     */
     async createConsumeTransport(peer) {
-        const consumerId = this.uuidv4();
-        const consumerTransport = new RTCPeerConnection(this.settings.configuration);
-        this.clients.get(peer.id).consumerId = consumerId;
-        consumerTransport.id = consumerId;
-        consumerTransport.peer = peer;
-        this.consumers.set(consumerId, consumerTransport);
-        this.consumers.get(consumerId).addTransceiver('video', { direction: "recvonly" })
-        this.consumers.get(consumerId).addTransceiver('audio', { direction: "recvonly" })
-        const offer = await this.consumers.get(consumerId).createOffer();
-        await this.consumers.get(consumerId).setLocalDescription(offer);
+        try {
+            const consumerId = this.uuidv4();
+            const consumerTransport = new RTCPeerConnection(this.settings.configuration);
+            
+            if (!this.clients.has(peer.id)) {
+                throw new Error(`Client ${peer.id} not found`);
+            }
+            
+            this.clients.get(peer.id).consumerId = consumerId;
+            consumerTransport.id = consumerId;
+            consumerTransport.peer = peer;
+            
+            this.consumers.set(consumerId, consumerTransport);
+            
+            // Add transceivers for video and audio
+            ['video', 'audio'].forEach(kind => {
+                this.consumers.get(consumerId).addTransceiver(kind, { direction: "recvonly" });
+            });
 
-        this.consumers.get(consumerId).onicecandidate = (e) => this.handleConsumerIceCandidate(e, peer.id, consumerId);
+            // Set up connection state change handler
+            consumerTransport.onconnectionstatechange = () => {
+                this.trigger(_EVENTS.onConnectionStateChange, {
+                    id: consumerId,
+                    state: consumerTransport.connectionState
+                });
 
-        this.consumers.get(consumerId).ontrack = (e) => {
-            this.handleRemoteTrack(e.streams[0], peer.username, consumerId);
-        };
+                if (consumerTransport.connectionState === 'failed') {
+                    this.trigger(_EVENTS.onError, {
+                        type: 'connection',
+                        error: new Error(`Consumer transport ${consumerId} failed`)
+                    });
+                }
+            };
 
-        return consumerTransport;
+            // Create and set local description
+            const offer = await this.consumers.get(consumerId).createOffer();
+            await this.consumers.get(consumerId).setLocalDescription(offer);
+
+            // Set up ICE candidate handling
+            this.consumers.get(consumerId).onicecandidate = (e) => {
+                this.handleConsumerIceCandidate(e, peer.id, consumerId);
+            };
+
+            // Set up track handling
+            this.consumers.get(consumerId).ontrack = (e) => {
+                this.handleRemoteTrack(e.streams[0], peer.username, consumerId);
+            };
+
+            return consumerTransport;
+        } catch (error) {
+            console.error('Failed to create consume transport:', error);
+            this.trigger(_EVENTS.onError, { type: 'transport', error });
+            throw error;
+        }
     }
 
     async consumeOnce(peer) {
@@ -299,14 +442,65 @@ class SimpleSFUClient {
         this.recalculateLayout();
     }
 
-    async connect() { //Produce media
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        this.handleRemoteTrack(stream, username.value)
-        this.localStream = stream;
+    /**
+     * Connect to the SFU and start producing media
+     * @returns {Promise<void>}
+     */
+    async connect() {
+        try {
+            // Request media with constraints
+            const constraints = {
+                video: {
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 },
+                    frameRate: { ideal: 30 }
+                },
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }
+            };
 
-        this.localPeer = this.createPeer();
-        this.localStream.getTracks().forEach(track => this.localPeer.addTrack(track, this.localStream));
-        await this.subscribe();
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            
+            // Handle the local stream
+            this.handleRemoteTrack(stream, username.value);
+            this.localStream = stream;
+
+            // Create and set up peer connection
+            this.localPeer = this.createPeer();
+            
+            // Add all tracks to the peer connection
+            this.localStream.getTracks().forEach(track => {
+                this.localPeer.addTrack(track, this.localStream);
+                
+                // Handle track ended events
+                track.onended = () => {
+                    this.trigger(_EVENTS.onStreamEnded, { track });
+                };
+            });
+
+            // Set up connection state monitoring
+            this.localPeer.onconnectionstatechange = () => {
+                this.trigger(_EVENTS.onConnectionStateChange, {
+                    state: this.localPeer.connectionState
+                });
+
+                if (this.localPeer.connectionState === 'failed') {
+                    this.trigger(_EVENTS.onError, {
+                        type: 'connection',
+                        error: new Error('Local peer connection failed')
+                    });
+                }
+            };
+
+            await this.subscribe();
+        } catch (error) {
+            console.error('Failed to connect:', error);
+            this.trigger(_EVENTS.onError, { type: 'connection', error });
+            throw error;
+        }
     }
 
     createPeer() {
@@ -338,13 +532,77 @@ class SimpleSFUClient {
         this.connection.send(JSON.stringify({ type: 'connect', sdp: this.localPeer.localDescription, uqid: this.localUUID, username: username.value }));
     }
 
+    /**
+     * Handles cleanup when the connection is closed
+     * @private
+     */
     handleClose() {
-        this.connection = null;
-        if(this.localStream) {
-            this.localStream.getTracks().forEach(track => track.stop());
+        try {
+            // Stop all local tracks
+            if (this.localStream) {
+                this.localStream.getTracks().forEach(track => {
+                    try {
+                        track.stop();
+                    } catch (error) {
+                        console.warn('Error stopping track:', error);
+                    }
+                });
+                this.localStream = null;
+            }
+
+            // Close all consumer connections
+            if (this.consumers) {
+                this.consumers.forEach((consumer, id) => {
+                    try {
+                        consumer.close();
+                        const videoElement = document.querySelector(`#remote_${id}`);
+                        if (videoElement) {
+                            const stream = videoElement.srcObject;
+                            if (stream) {
+                                stream.getTracks().forEach(track => track.stop());
+                            }
+                            videoElement.srcObject = null;
+                        }
+                    } catch (error) {
+                        console.warn(`Error closing consumer ${id}:`, error);
+                    }
+                });
+            }
+
+            // Close local peer connection
+            if (this.localPeer) {
+                try {
+                    this.localPeer.close();
+                } catch (error) {
+                    console.warn('Error closing local peer:', error);
+                }
+                this.localPeer = null;
+            }
+
+            // Clear collections
+            this.consumers = new Map();
+            this.clients = new Map();
+            this._isOpen = false;
+
+            // Clean up WebSocket
+            if (this.connection) {
+                this.connection.onclose = null;
+                this.connection.onmessage = null;
+                this.connection.onerror = null;
+                this.connection = null;
+            }
+
+            // Clear video container
+            const videoContainer = document.querySelector('.videos-inner');
+            if (videoContainer) {
+                videoContainer.innerHTML = '';
+            }
+
+            this.trigger(_EVENTS.onStreamEnded);
+        } catch (error) {
+            console.error('Error in handleClose:', error);
+            this.trigger(_EVENTS.onError, { type: 'cleanup', error });
         }
-        this.clients = null;
-        this.consumers = null;
     }
 
 
@@ -355,15 +613,110 @@ class SimpleSFUClient {
         });
     }
 
+    /**
+     * Recalculates the layout of video elements in a Zoom-like grid
+     * @private
+     */
     recalculateLayout() {
-        const container = remoteContainer;
-        const videoContainer = document.querySelector('.videos-inner');
-        const videoCount = container.querySelectorAll('.videoWrap').length;
+        try {
+            const container = remoteContainer;
+            const videoContainer = document.querySelector('.videos-inner');
+            const videos = container.querySelectorAll('.videoWrap');
+            const videoCount = videos.length;
 
-        if (videoCount >= 3) {
-            videoContainer.style.setProperty("--grow", 0 + "");
-        } else {
-            videoContainer.style.setProperty("--grow", 1 + "");
+            if (!videoContainer || videoCount === 0) return;
+
+            // Reset any existing styles
+            videoContainer.style.removeProperty('--columns');
+            videoContainer.style.removeProperty('--rows');
+            videos.forEach(video => {
+                video.style.width = '';
+                video.style.height = '';
+                video.style.order = '';
+            });
+
+            // Calculate optimal grid dimensions
+            const aspectRatio = 16/9;
+            const containerWidth = videoContainer.clientWidth;
+            const containerHeight = videoContainer.clientHeight;
+            const containerAspectRatio = containerWidth / containerHeight;
+
+            let columns, rows;
+            if (videoCount === 1) {
+                columns = 1;
+                rows = 1;
+            } else if (videoCount === 2) {
+                columns = 2;
+                rows = 1;
+            } else {
+                // Calculate the best grid arrangement
+                const sqrt = Math.sqrt(videoCount);
+                columns = Math.ceil(sqrt * containerAspectRatio);
+                rows = Math.ceil(videoCount / columns);
+
+                // Adjust if we have too many columns
+                if (columns > 4) {
+                    columns = 4;
+                    rows = Math.ceil(videoCount / columns);
+                }
+            }
+
+            // Calculate video dimensions
+            const padding = 8; // Gap between videos
+            const availableWidth = containerWidth - (padding * (columns - 1));
+            const availableHeight = containerHeight - (padding * (rows - 1));
+            const videoWidth = Math.floor(availableWidth / columns);
+            const videoHeight = Math.floor(availableHeight / rows);
+
+            // Set grid properties
+            videoContainer.style.setProperty('--columns', columns);
+            videoContainer.style.setProperty('--rows', rows);
+            videoContainer.style.setProperty('--video-width', videoWidth + 'px');
+            videoContainer.style.setProperty('--video-height', videoHeight + 'px');
+            videoContainer.style.setProperty('--gap', padding + 'px');
+
+            // Apply layout to videos
+            videos.forEach((video, index) => {
+                // Calculate position in grid
+                const row = Math.floor(index / columns);
+                const col = index % columns;
+                
+                // Center videos in last row if it's not full
+                if (row === rows - 1) {
+                    const itemsInLastRow = videoCount - (rows - 1) * columns;
+                    const offset = Math.floor((columns - itemsInLastRow) / 2);
+                    if (offset > 0) {
+                        video.style.order = index + offset;
+                    }
+                }
+
+                // Set video dimensions and position
+                video.style.width = videoWidth + 'px';
+                video.style.height = videoHeight + 'px';
+
+                // Add CSS classes for animations
+                video.classList.add('video-transition');
+            });
+
+            // Update speaking indicator position for active speaker
+            const activeSpeaker = container.querySelector('.videoWrap.speaking');
+            if (activeSpeaker) {
+                // Move active speaker to first position if not already there
+                const currentIndex = Array.from(videos).indexOf(activeSpeaker);
+                if (currentIndex > 0) {
+                    activeSpeaker.style.order = '0';
+                }
+            }
+
+            // Set container properties
+            videoContainer.style.display = 'grid';
+            videoContainer.style.gridTemplateColumns = `repeat(${columns}, 1fr)`;
+            videoContainer.style.gap = padding + 'px';
+            videoContainer.style.justifyContent = 'center';
+            videoContainer.style.alignContent = 'center';
+        } catch (error) {
+            console.error('Error in recalculateLayout:', error);
+            this.trigger(_EVENTS.onError, { type: 'layout', error });
         }
     }
 }
